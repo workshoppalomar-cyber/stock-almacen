@@ -362,7 +362,7 @@ body.gated{overflow:hidden}
   <section class="view" id="view-egreso" hidden></section>
 </main>
 
-<datalist id="dlArts"></datalist><datalist id="dlCat"></datalist><datalist id="dlUbi"></datalist><datalist id="dlUni"></datalist><datalist id="dlQuien"></datalist><datalist id="dlDest"></datalist><datalist id="dlProv"></datalist>
+<datalist id="dlArts"></datalist><datalist id="dlCat"></datalist><datalist id="dlUbi"></datalist><datalist id="dlUni"></datalist><datalist id="dlQuien"></datalist><datalist id="dlEntrega"></datalist><datalist id="dlDest"></datalist><datalist id="dlProv"></datalist>
 <div class="modal" id="modal" hidden><div class="modalbox" id="modalbox" role="dialog" aria-modal="true" aria-labelledby="modalTitle"></div></div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
@@ -465,6 +465,7 @@ function refreshLists(){
   $('dlUni').innerHTML=opts(uniq(['unidades','litros','kg','metros','cajas','pares'].concat(ARTS.map(a=>a.uni))));
   $('dlQuien').innerHTML=opts(uniq(RECIENTES.filter(m=>m.tipo==='egreso').map(m=>m.quien)));
   $('dlDest').innerHTML=opts(uniq(RECIENTES.filter(m=>m.tipo==='egreso').map(m=>m.dest)));
+  $('dlEntrega').innerHTML=opts(uniq(RECIENTES.map(m=>m.entrega)));
   $('dlProv').innerHTML=opts(uniq(RECIENTES.filter(m=>m.tipo==='ingreso').map(m=>m.quien)));
 }
 function renderStock(){
@@ -544,7 +545,8 @@ function editArt(id){
     <div class="field"><label for="_eUbi">Ubicación</label><input type="text" id="_eUbi" list="dlUbi" value="${esc(a.ubi||'')}" placeholder="Ej: Estante A3" autocomplete="off"></div>
     <div class="field"><label for="_eMin">Stock mínimo (alerta)</label><input type="number" id="_eMin" min="0" step="any" inputmode="decimal" value="${+a.min||0}"></div>
     ${id?'':`<div class="field"><label for="_eStock">Stock inicial</label><input type="number" id="_eStock" min="0" step="any" inputmode="decimal" value="0"></div>
-    <div class="field full"><span class="flabel">El stock inicial es de</span>${dueSeg('_eDue','taller')}</div>`}
+    <div class="field full"><span class="flabel">El stock inicial es de</span>${dueSeg('_eDue','taller')}</div>
+    <div class="field full"><label for="_eEntrega">Nombre entrega</label><input type="text" id="_eEntrega" list="dlEntrega" placeholder="Quién entrega el stock inicial" autocomplete="off"></div>`}
   </div>${id?'<p class="g-sub" style="margin:0">El stock no se edita acá: cambia con Ingreso, Egreso o Ajustar por conteo, así queda registrado.</p>':''}<p class="ferr" id="_eErr"></p></div>
   <div class="modalfoot"><button class="btn ghost" type="button" id="_eNo">Cancelar</button><button class="btn" type="button" id="_eOk">${id?'Guardar cambios':'Crear artículo'}</button></div>`);
   $('_eNo').onclick=closeModal;
@@ -561,7 +563,7 @@ function editArt(id){
         const ini=redondo(+$('_eStock').value||0),due=dueVal('_eDue')||'taller';if(ini<0){$('_eOk').disabled=false;return err('El stock inicial no puede ser negativo.');}
         const ref=FS.doc(FS.collection(fdb,'articulos')),b=FS.writeBatch(fdb),now=Date.now();
         b.set(ref,Object.assign(d,{stock:ini,sc:due==='comercial'?ini:0,st:due==='taller'?ini:0,activo:true,alta:now,mod:now,por:EMAIL},ini>0?{ultIng:hoy()}:{}));
-        if(ini>0)b.set(FS.doc(FS.collection(fdb,'movimientos')),{tipo:'inicial',due,art:ref.id,cod:d.cod,desc:d.desc,uni:d.uni,cant:ini,delta:ini,stock:ini,stockDue:ini,fecha:hoy(),quien:'',dest:'',obs:'Alta del artículo',at:now,por:EMAIL});
+        if(ini>0)b.set(FS.doc(FS.collection(fdb,'movimientos')),{tipo:'inicial',due,art:ref.id,cod:d.cod,desc:d.desc,uni:d.uni,cant:ini,delta:ini,stock:ini,stockDue:ini,fecha:hoy(),quien:'',entrega:$('_eEntrega').value.trim(),dest:'',obs:'Alta del artículo',at:now,por:EMAIL});
         await b.commit();showToast('Artículo creado: '+d.cod);
       }
       closeModal();
@@ -590,7 +592,7 @@ async function mover(artId,tipo,cant,extra){
     const cambio={stock:total,[campo]:despues,mod:Date.now()};
     if(tipo==='ingreso'&&extra.fecha>(a.ultIng||''))cambio.ultIng=extra.fecha;
     t.update(ref,cambio);
-    t.set(mref,Object.assign({tipo,art:artId,cod:a.cod,desc:a.desc,uni:a.uni||'',cant:Math.abs(delta),delta,stock:total,stockDue:despues,quien:'',dest:'',obs:''},extra,{at:Date.now(),por:EMAIL}));
+    t.set(mref,Object.assign({tipo,art:artId,cod:a.cod,desc:a.desc,uni:a.uni||'',cant:Math.abs(delta),delta,stock:total,stockDue:despues,quien:'',entrega:'',dest:'',obs:''},extra,{at:Date.now(),por:EMAIL}));
     return {a,despues,total};
   });
 }
@@ -647,6 +649,7 @@ function renderForm(modo,preId){
     <div class="field"><label for="egresoDest">Destino / para qué</label><input type="text" id="egresoDest" list="dlDest" placeholder="Ej: VIS, OT, sector, línea"></div>`
     :`<div class="field"><label for="ingresoQuien">Proveedor / origen</label><input type="text" id="ingresoQuien" list="dlProv" placeholder="Ej: Compras, proveedor X"></div>
     <div class="field"><label for="ingresoDest">Remito / N.º de documento</label><input type="text" id="ingresoDest" placeholder="Ej: R-0001-00012345"></div>`}
+    <div class="field full"><label for="${modo}Entrega">Nombre entrega <span class="req">*</span></label><input type="text" id="${modo}Entrega" list="dlEntrega" placeholder="Quién entrega el material"></div>
     <div class="field full"><label for="${modo}Obs">Observaciones</label><textarea id="${modo}Obs" rows="2"></textarea></div>
   </div><p class="ferr" id="${modo}Err"></p>
   <div class="formfoot"><button class="btn ghost" type="reset">Limpiar</button><button class="btn ${eg?'':'green'}" type="submit" id="${modo}Ok">${eg?'Registrar egreso':'Registrar ingreso'}</button></div></form>`;
@@ -669,9 +672,10 @@ function renderForm(modo,preId){
     if(!(c>0))return err('La cantidad tiene que ser mayor a 0.');
     if(!f)return err('Falta la fecha.');if(f>hoy())return err('La fecha no puede ser futura.');
     if(eg&&!quien)return err('Escribí quién retira.');
+    const entrega=$(modo+'Entrega').value.trim();if(!entrega)return err('Escribí el nombre de quien entrega el material.');
     err('');const btn=$(modo+'Ok');btn.disabled=true;
     try{
-      const r=await mover(a.id,modo,c,{due,fecha:f,quien,dest:$(modo+'Dest').value.trim(),obs:$(modo+'Obs').value.trim()});
+      const r=await mover(a.id,modo,c,{due,fecha:f,quien,entrega,dest:$(modo+'Dest').value.trim(),obs:$(modo+'Obs').value.trim()});
       DUE_RECORDAR[modo]=due;
       const e2=estado(Object.assign({},r.a,{stock:r.total}));
       showToast(`${eg?'Egreso':'Ingreso'} registrado. ${DUE_TXT[due]}: quedan ${fNum(r.despues)} ${r.a.uni||''}`+(e2==='bajo'?' (el total llegó al mínimo)':e2==='sin'?' (sin stock)':''),e2==='ok'?'ok':'info');
@@ -687,7 +691,7 @@ function movTable(ms,conAcciones){
   return `<table class="simple"><thead><tr><th>Fecha</th><th>Tipo</th>${conAcciones?'<th>Artículo</th>':''}<th class="num">Cantidad</th><th class="num">Quedó</th><th>Quién / destino</th><th class="hide-sm">Cargó</th>${conAcciones&&ADMIN?'<th></th>':''}</tr></thead><tbody>${
     ms.map(m=>`<tr class="${m.anulado?'anul':''}"><td class="tnum">${fFecha(m.fecha)}</td><td class="keep"><span class="chip t-${m.tipo}">${TIPO_TXT[m.tipo]||m.tipo}</span>${m.due?` <span class="due ${m.due}">${DUE_TXT[m.due]}</span>`:''}${m.anulado?'<span class="sub">Anulado</span>':''}</td>${conAcciones?`<td><span class="mono">${esc(m.cod)}</span><span class="sub">${esc(m.desc)}</span></td>`:''}
       <td class="num ${m.delta>0?'pos':'neg'}">${m.delta>0?'+':'−'}${fNum(m.cant)}<span class="sub">${esc(m.uni)}</span></td><td class="num">${fNum(m.stock)}${m.due&&m.stockDue!==undefined?`<span class="sub">${DUE_TXT[m.due]}: ${fNum(m.stockDue)}</span>`:''}</td>
-      <td>${esc(m.quien||'')}${m.dest?`<span class="sub">${esc(m.dest)}</span>`:''}${m.obs?`<span class="sub">${esc(m.obs)}</span>`:''}</td><td class="hide-sm"><span class="sub" title="${esc(fHora(m.at))}">${esc((m.por||'').split('@')[0])}</span></td>
+      <td>${esc(m.quien||'')}${m.entrega?`<span class="sub">Entregó: ${esc(m.entrega)}</span>`:''}${m.dest?`<span class="sub">${esc(m.dest)}</span>`:''}${m.obs?`<span class="sub">${esc(m.obs)}</span>`:''}</td><td class="hide-sm"><span class="sub" title="${esc(fHora(m.at))}">${esc((m.por||'').split('@')[0])}</span></td>
       ${conAcciones&&ADMIN?`<td class="keep">${m.anulado?'':`<button class="btn ghost sm" type="button" data-anul="${esc(m.id)}">Anular</button>`}</td>`:''}</tr>`).join('')
   }</tbody></table>`;
 }
@@ -705,7 +709,7 @@ function watchMovs(){
 }
 function movsFiltrados(){
   const t=$('mvTipo').value,du=$('mvDue').value,q=norm($('mvBuscar').value);
-  return MOVS.filter(m=>(!t||m.tipo===t)&&(!du||m.due===du)&&(!q||norm([m.cod,m.desc,m.quien,m.dest,m.obs,m.por].join(' ')).includes(q)));
+  return MOVS.filter(m=>(!t||m.tipo===t)&&(!du||m.due===du)&&(!q||norm([m.cod,m.desc,m.quien,m.entrega,m.dest,m.obs,m.por].join(' ')).includes(q)));
 }
 function renderMovs(){
   const ms=movsFiltrados(),box=$('movTbl'),MAX=500;
@@ -761,7 +765,7 @@ $('rtDias').addEventListener('change',watchRot);$('rtDue').addEventListener('cha
 function needXLSX(){if(window.XLSX)return true;showToast('No se pudo cargar la herramienta de Excel. Revisá internet y recargá.','err');return false;}
 function bajarExcel(nombre,hojas){const wb=XLSX.utils.book_new();Object.keys(hojas).forEach(h=>XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(hojas[h]),h));XLSX.writeFile(wb,nombre);}
 const filaArt=a=>({'Código':a.cod,'Descripción':a.desc,'Categoría':a.cat||'','Ubicación':a.ubi||'','Unidad':a.uni||'','Stock Comercial':stockDe(a,'comercial'),'Stock Taller':stockDe(a,'taller'),'Stock total':+a.stock||0,'Stock mínimo':+a.min||0,'Estado':EST_TXT[estado(a)],'Último ingreso':fFecha(a.ultIng),'Reponer hasta el mínimo':Math.max(0,redondo((+a.min||0)-(+a.stock||0)))});
-const filaMov=m=>({'Fecha':fFecha(m.fecha),'Tipo':TIPO_TXT[m.tipo]||m.tipo,'Dueño':DUE_TXT[m.due]||'','Código':m.cod,'Descripción':m.desc,'Cantidad':m.delta,'Unidad':m.uni,'Stock total después':m.stock,'Stock del dueño después':m.stockDue??'','Quién retira / proveedor':m.quien||'','Destino / remito':m.dest||'','Observaciones':m.obs||'','Cargado por':m.por||'','Cargado el':fHora(m.at),'Anulado':m.anulado?'Sí':''});
+const filaMov=m=>({'Fecha':fFecha(m.fecha),'Tipo':TIPO_TXT[m.tipo]||m.tipo,'Dueño':DUE_TXT[m.due]||'','Código':m.cod,'Descripción':m.desc,'Cantidad':m.delta,'Unidad':m.uni,'Stock total después':m.stock,'Stock del dueño después':m.stockDue??'','Quién retira / proveedor':m.quien||'','Nombre entrega':m.entrega||'','Destino / remito':m.dest||'','Observaciones':m.obs||'','Cargado por':m.por||'','Cargado el':fHora(m.at),'Anulado':m.anulado?'Sí':''});
 $('mExport').onclick=()=>{closeMas();if(!needXLSX())return;bajarExcel(`stock-almacen-${hoy()}.xlsx`,{Stock:stockFiltrado().map(filaArt)});};
 $('mvExport').onclick=()=>{if(!needXLSX())return;bajarExcel(`movimientos-${$('mvDesde').value}-a-${$('mvHasta').value}.xlsx`,{Movimientos:movsFiltrados().map(filaMov)});};
 $('rtExport').onclick=()=>{if(!needXLSX())return;bajarExcel(`rotacion-${hoy()}.xlsx`,{'Rotación':rotFilas().map((r,i)=>({'Puesto':i+1,'Código':r.cod,'Descripción':r.desc,'Retiros':r.veces,'Cantidad retirada':r.cant,'Unidad':r.uni||'','Promedio por mes':r.mes,'Stock actual':r.stock,'Alcanza para (días)':r.cob===null?'':r.cob,'Último retiro':fFecha(r.ult)}))});};
