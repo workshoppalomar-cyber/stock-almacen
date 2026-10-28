@@ -308,12 +308,13 @@ body.gated{overflow:hidden}
         <details class="menu" id="sMas"><summary class="btn ghost">Más</summary><div class="menu-pop">
           <button class="mi" type="button" id="mExport">Exportar stock a Excel<small>Lo que se ve en la tabla, con los filtros</small></button>
           <button class="mi admin-only" type="button" id="mImport">Importar artículos desde Excel<small>Para la carga inicial o cambios masivos</small></button>
+          <button class="mi admin-only" type="button" id="mHist">Importar historial de movimientos<small>Movimientos viejos de un Excel: quedan en el historial y en Rotación, sin cambiar el stock</small></button>
           <button class="mi admin-only" type="button" id="mModelo">Bajar planilla modelo<small>Las columnas que lee "Importar"</small></button>
           <hr class="admin-only">
           <button class="mi admin-only" type="button" id="mBackup">Descargar respaldo completo<small>Artículos y todos los movimientos, en Excel</small></button>
           <button class="mi admin-only" type="button" id="mUsers">Usuarios y permisos<small>Quién entra y qué puede hacer</small></button>
         </div></details>
-        <input type="file" id="importIn" accept=".xlsx,.xls,.csv" hidden>
+        <input type="file" id="importIn" accept=".xlsx,.xls,.csv" hidden><input type="file" id="histIn" accept=".xlsx,.xls,.csv" hidden>
       </div>
     </div>
     <div class="alertbar" id="backupBar" hidden></div>
@@ -386,6 +387,7 @@ const FB_VER='10.14.1';
 const $=id=>document.getElementById(id);
 function esc(s){return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 const norm=s=>String(s??'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().trim();
+const hoja=(wb,nombres)=>wb.SheetNames.find(n=>nombres.includes(norm(n)))||wb.SheetNames[0];
 const hoy=()=>{const d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,10);};
 const masDias=(iso,n)=>{const d=new Date(iso+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10);};
 const fNum=n=>(+n||0).toLocaleString('es-AR',{maximumFractionDigits:3});
@@ -466,7 +468,7 @@ function refreshLists(){
   $('dlQuien').innerHTML=opts(uniq(RECIENTES.filter(m=>m.tipo==='egreso').map(m=>m.quien)));
   $('dlDest').innerHTML=opts(uniq(RECIENTES.filter(m=>m.tipo==='egreso').map(m=>m.dest)));
   $('dlEntrega').innerHTML=opts(uniq(RECIENTES.map(m=>m.entrega)));
-  $('dlProv').innerHTML=opts(uniq(RECIENTES.filter(m=>m.tipo==='ingreso').map(m=>m.quien)));
+  $('dlProv').innerHTML=opts(uniq(RECIENTES.filter(m=>m.tipo==='ingreso').map(m=>m.quien).concat(ARTS.map(a=>a.prov))));
 }
 function renderStock(){
   const act=ARTS.filter(a=>a.activo!==false);
@@ -517,7 +519,7 @@ async function openArt(id){
   openModal(`<h3>${esc(a.cod)} · ${esc(a.desc)}</h3><div class="modalbody">
     <dl class="dl"><dt>Stock total</dt><dd><b>${fNum(a.stock)}</b> ${esc(a.uni||'')} <span class="chip ${e}">${EST_TXT[e]}</span></dd>
       <dt>De Comercial</dt><dd>${fNum(stockDe(a,'comercial'))}</dd><dt>Del Taller</dt><dd>${fNum(stockDe(a,'taller'))}</dd><dt>Último ingreso</dt><dd>${fFecha(a.ultIng)||'—'}</dd>
-      <dt>Stock mínimo</dt><dd>${fNum(a.min)} ${esc(a.uni||'')}</dd><dt>Categoría</dt><dd>${esc(a.cat||'—')}</dd><dt>Ubicación</dt><dd>${esc(a.ubi||'—')}</dd></dl>
+      <dt>Stock mínimo</dt><dd>${fNum(a.min)} ${esc(a.uni||'')}</dd>${+a.max?`<dt>Stock máximo</dt><dd>${fNum(a.max)} ${esc(a.uni||'')}</dd>`:''}<dt>Categoría</dt><dd>${esc(a.cat||'—')}</dd><dt>Ubicación</dt><dd>${esc(a.ubi||'—')}</dd>${a.prov?`<dt>Proveedor</dt><dd>${esc(a.prov)}</dd>`:''}</dl>
     ${WRITE&&a.activo!==false?`<div class="grp"><button class="btn green" type="button" id="_aIn">Ingreso</button><button class="btn" type="button" id="_aOut">Egreso</button><button class="btn ghost" type="button" id="_aAdj">Ajustar por conteo</button><button class="btn ghost" type="button" id="_aEd">Editar datos</button></div>`:''}
     <div class="card"><h3>Últimos movimientos <span class="hint" id="_aHint"></span></h3><div class="tblwrap" id="_aMovs"><p class="g-wait" style="padding:12px 16px"><span class="g-spin"></span>Cargando…</p></div></div>
   </div><div class="modalfoot">${ADMIN?(a.activo===false?`<button class="btn ghost" type="button" id="_aBaja">Reactivar</button>`:`<button class="btn ghost" type="button" id="_aBaja">Dar de baja</button>`):''}<button class="btn ghost" type="button" id="_aClose">Cerrar</button></div>`,true);
@@ -544,6 +546,8 @@ function editArt(id){
     <div class="field"><label for="_eCat">Categoría</label><input type="text" id="_eCat" list="dlCat" value="${esc(a.cat||'')}" placeholder="Ej: Insumos de pintura" autocomplete="off"></div>
     <div class="field"><label for="_eUbi">Ubicación</label><input type="text" id="_eUbi" list="dlUbi" value="${esc(a.ubi||'')}" placeholder="Ej: Estante A3" autocomplete="off"></div>
     <div class="field"><label for="_eMin">Stock mínimo (alerta)</label><input type="number" id="_eMin" min="0" step="any" inputmode="decimal" value="${+a.min||0}"></div>
+    <div class="field"><label for="_eMax">Stock máximo</label><input type="number" id="_eMax" min="0" step="any" inputmode="decimal" value="${+a.max||0}" placeholder="Opcional"></div>
+    <div class="field"><label for="_eProv">Proveedor</label><input type="text" id="_eProv" list="dlProv" value="${esc(a.prov||'')}" placeholder="Opcional" autocomplete="off"></div>
     ${id?'':`<div class="field"><label for="_eStock">Stock inicial</label><input type="number" id="_eStock" min="0" step="any" inputmode="decimal" value="0"></div>
     <div class="field full"><span class="flabel">El stock inicial es de</span>${dueSeg('_eDue','taller')}</div>
     <div class="field full"><label for="_eEntrega">Nombre entrega</label><input type="text" id="_eEntrega" list="dlEntrega" placeholder="Quién entrega el stock inicial" autocomplete="off"></div>`}
@@ -552,9 +556,10 @@ function editArt(id){
   $('_eNo').onclick=closeModal;
   $('_eOk').onclick=async()=>{
     const v=k=>$(k).value.trim(),err=t=>{$('_eErr').textContent=t;};
-    const d={cod:v('_eCod'),desc:v('_eDesc'),cat:v('_eCat'),ubi:v('_eUbi'),uni:v('_eUni'),min:redondo(+$('_eMin').value||0)};
+    const d={cod:v('_eCod'),desc:v('_eDesc'),cat:v('_eCat'),ubi:v('_eUbi'),uni:v('_eUni'),min:redondo(+$('_eMin').value||0),max:redondo(+$('_eMax').value||0),prov:v('_eProv')};
     if(!d.cod)return err('Falta el código.');if(!d.desc)return err('Falta la descripción.');
-    if(d.min<0)return err('El stock mínimo no puede ser negativo.');
+    if(d.min<0||d.max<0)return err('El stock mínimo y el máximo no pueden ser negativos.');
+    if(d.max&&d.max<d.min)return err('El stock máximo no puede ser menor que el mínimo.');
     if(ARTS.some(x=>x.id!==id&&norm(x.cod)===norm(d.cod)))return err('Ya existe un artículo con el código '+d.cod+'.');
     const {FS,fdb}=FB;$('_eOk').disabled=true;
     try{
@@ -597,7 +602,7 @@ async function mover(artId,tipo,cant,extra){
   });
 }
 function anular(movId){
-  const m=MOVS.find(x=>x.id===movId);if(!m)return;
+  const m=MOVS.find(x=>x.id===movId);if(!m||m.importado)return;
   confirmDialog(`¿Anular este ${esc(TIPO_TXT[m.tipo].toLowerCase())} de <b>${fNum(m.cant)} ${esc(m.uni)}</b> de <b>${esc(m.desc)}</b> (${esc(DUE_TXT[m.due]||'')})?<br><br>El stock vuelve a como estaba antes de ese movimiento. El movimiento queda en el historial, tachado.`,async()=>{
     const {FS,fdb}=FB,mref=FS.doc(fdb,'movimientos/'+movId),aref=FS.doc(fdb,'articulos/'+m.art);
     try{
@@ -689,10 +694,10 @@ function renderForm(modo,preId){
 /* ===== MOVIMIENTOS ===== */
 function movTable(ms,conAcciones){
   return `<table class="simple"><thead><tr><th>Fecha</th><th>Tipo</th>${conAcciones?'<th>Artículo</th>':''}<th class="num">Cantidad</th><th class="num">Quedó</th><th>Quién / destino</th><th class="hide-sm">Cargó</th>${conAcciones&&ADMIN?'<th></th>':''}</tr></thead><tbody>${
-    ms.map(m=>`<tr class="${m.anulado?'anul':''}"><td class="tnum">${fFecha(m.fecha)}</td><td class="keep"><span class="chip t-${m.tipo}">${TIPO_TXT[m.tipo]||m.tipo}</span>${m.due?` <span class="due ${m.due}">${DUE_TXT[m.due]}</span>`:''}${m.anulado?'<span class="sub">Anulado</span>':''}</td>${conAcciones?`<td><span class="mono">${esc(m.cod)}</span><span class="sub">${esc(m.desc)}</span></td>`:''}
-      <td class="num ${m.delta>0?'pos':'neg'}">${m.delta>0?'+':'−'}${fNum(m.cant)}<span class="sub">${esc(m.uni)}</span></td><td class="num">${fNum(m.stock)}${m.due&&m.stockDue!==undefined?`<span class="sub">${DUE_TXT[m.due]}: ${fNum(m.stockDue)}</span>`:''}</td>
+    ms.map(m=>`<tr class="${m.anulado?'anul':''}"><td class="tnum">${fFecha(m.fecha)}</td><td class="keep"><span class="chip t-${m.tipo}">${TIPO_TXT[m.tipo]||m.tipo}</span>${m.due?` <span class="due ${m.due}">${DUE_TXT[m.due]}</span>`:''}${m.anulado?'<span class="sub">Anulado</span>':''}${m.importado?'<span class="sub">Del Excel</span>':''}</td>${conAcciones?`<td><span class="mono">${esc(m.cod)}</span><span class="sub">${esc(m.desc)}</span></td>`:''}
+      <td class="num ${m.delta>0?'pos':'neg'}">${m.delta>0?'+':'−'}${fNum(m.cant)}<span class="sub">${esc(m.uni)}</span></td><td class="num">${m.stock===undefined?'—':fNum(m.stock)}${m.due&&m.stockDue!==undefined?`<span class="sub">${DUE_TXT[m.due]}: ${fNum(m.stockDue)}</span>`:''}</td>
       <td>${esc(m.quien||'')}${m.entrega?`<span class="sub">Entregó: ${esc(m.entrega)}</span>`:''}${m.dest?`<span class="sub">${esc(m.dest)}</span>`:''}${m.obs?`<span class="sub">${esc(m.obs)}</span>`:''}</td><td class="hide-sm"><span class="sub" title="${esc(fHora(m.at))}">${esc((m.por||'').split('@')[0])}</span></td>
-      ${conAcciones&&ADMIN?`<td class="keep">${m.anulado?'':`<button class="btn ghost sm" type="button" data-anul="${esc(m.id)}">Anular</button>`}</td>`:''}</tr>`).join('')
+      ${conAcciones&&ADMIN?`<td class="keep">${m.anulado||m.importado?'':`<button class="btn ghost sm" type="button" data-anul="${esc(m.id)}">Anular</button>`}</td>`:''}</tr>`).join('')
   }</tbody></table>`;
 }
 function watchMovs(){
@@ -764,7 +769,7 @@ $('rtDias').addEventListener('change',watchRot);$('rtDue').addEventListener('cha
 /* ===== EXCEL ===== */
 function needXLSX(){if(window.XLSX)return true;showToast('No se pudo cargar la herramienta de Excel. Revisá internet y recargá.','err');return false;}
 function bajarExcel(nombre,hojas){const wb=XLSX.utils.book_new();Object.keys(hojas).forEach(h=>XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(hojas[h]),h));XLSX.writeFile(wb,nombre);}
-const filaArt=a=>({'Código':a.cod,'Descripción':a.desc,'Categoría':a.cat||'','Ubicación':a.ubi||'','Unidad':a.uni||'','Stock Comercial':stockDe(a,'comercial'),'Stock Taller':stockDe(a,'taller'),'Stock total':+a.stock||0,'Stock mínimo':+a.min||0,'Estado':EST_TXT[estado(a)],'Último ingreso':fFecha(a.ultIng),'Reponer hasta el mínimo':Math.max(0,redondo((+a.min||0)-(+a.stock||0)))});
+const filaArt=a=>({'Código':a.cod,'Descripción':a.desc,'Categoría':a.cat||'','Ubicación':a.ubi||'','Unidad':a.uni||'','Stock Comercial':stockDe(a,'comercial'),'Stock Taller':stockDe(a,'taller'),'Stock total':+a.stock||0,'Stock mínimo':+a.min||0,'Stock máximo':+a.max||'','Proveedor':a.prov||'','Estado':EST_TXT[estado(a)],'Último ingreso':fFecha(a.ultIng),'Reponer hasta el mínimo':Math.max(0,redondo((+a.min||0)-(+a.stock||0))),'Pedir para llegar al máximo':+a.max?Math.max(0,redondo(a.max-(+a.stock||0))):''});
 const filaMov=m=>({'Fecha':fFecha(m.fecha),'Tipo':TIPO_TXT[m.tipo]||m.tipo,'Dueño':DUE_TXT[m.due]||'','Código':m.cod,'Descripción':m.desc,'Cantidad':m.delta,'Unidad':m.uni,'Stock total después':m.stock,'Stock del dueño después':m.stockDue??'','Quién retira / proveedor':m.quien||'','Nombre entrega':m.entrega||'','Destino / remito':m.dest||'','Observaciones':m.obs||'','Cargado por':m.por||'','Cargado el':fHora(m.at),'Anulado':m.anulado?'Sí':''});
 $('mExport').onclick=()=>{closeMas();if(!needXLSX())return;bajarExcel(`stock-almacen-${hoy()}.xlsx`,{Stock:stockFiltrado().map(filaArt)});};
 $('mvExport').onclick=()=>{if(!needXLSX())return;bajarExcel(`movimientos-${$('mvDesde').value}-a-${$('mvHasta').value}.xlsx`,{Movimientos:movsFiltrados().map(filaMov)});};
@@ -779,9 +784,10 @@ $('importIn').addEventListener('change',e=>{
   const f=e.target.files&&e.target.files[0];e.target.value='';if(!f)return;
   const rd=new FileReader();
   rd.onload=()=>{
-    let filas;try{const wb=XLSX.read(rd.result,{type:'array'});filas=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});}catch(err){showToast('No se pudo leer ese archivo.','err');return;}
-    const COL={cod:['codigo','cod','code'],desc:['descripcion','articulo','nombre','detalle'],cat:['categoria','rubro','familia'],ubi:['ubicacion','lugar','estante'],uni:['unidad','um','unidad de medida'],min:['stock minimo','minimo','min'],stock:['stock','stock inicial','cantidad','existencia'],due:['dueno','propietario','de quien']};
-    const get=(r,k)=>{const key=Object.keys(r).find(h=>COL[k].includes(norm(h)));return key===undefined?'':r[key];};
+    let filas;try{const wb=XLSX.read(rd.result,{type:'array'});filas=XLSX.utils.sheet_to_json(wb.Sheets[hoja(wb,['inventario','articulos','stock'])],{defval:''});}catch(err){showToast('No se pudo leer ese archivo.','err');return;}
+    // nombres de columna aceptados, en orden de preferencia (ej.: si hay "Stock actual" y "Stock inicial", vale "Stock actual")
+    const COL={cod:['codigo','cod','code'],desc:['descripcion','producto','articulo','nombre','detalle'],cat:['categoria','rubro','familia'],ubi:['ubicacion','lugar','estante'],uni:['unidad','um','unidad de medida'],min:['stock minimo','minimo','min'],max:['stock maximo','maximo','max'],prov:['proveedor'],stock:['stock actual','stock total','stock','existencia','stock inicial','cantidad'],due:['dueno','propietario','de quien']};
+    const get=(r,k)=>{for(const al of COL[k]){const key=Object.keys(r).find(h=>norm(h)===al);if(key!==undefined)return r[key];}return '';};
     const nuevos=[],cambios=[],errores=[],vistos=new Set();
     filas.forEach((r,i)=>{
       const cod=String(get(r,'cod')).trim(),desc=String(get(r,'desc')).trim();
@@ -789,18 +795,70 @@ $('importIn').addEventListener('change',e=>{
       if(!cod||!desc){errores.push(`Fila ${i+2}: falta código o descripción`);return;}
       if(vistos.has(norm(cod))){errores.push(`Fila ${i+2}: el código ${cod} está repetido`);return;}vistos.add(norm(cod));
       const num=x=>{const n=+String(x).replace(',','.');return isNaN(n)?0:Math.max(0,redondo(n));};
-      const d={cod,desc,cat:String(get(r,'cat')).trim(),ubi:String(get(r,'ubi')).trim(),uni:String(get(r,'uni')).trim()||'unidades',min:num(get(r,'min'))};
+      const txt=k=>String(get(r,k)).trim();
+      const d={cod,desc,cat:txt('cat'),ubi:txt('ubi'),uni:txt('uni'),prov:txt('prov'),min:txt('min')===''?'':num(get(r,'min')),max:txt('max')===''?'':num(get(r,'max'))};
       const ya=ARTS.find(a=>norm(a.cod)===norm(cod));
-      if(ya){cambios.push({id:ya.id,d});return;}
+      // en los que ya existen solo se pisan las columnas que vienen con dato
+      if(ya){Object.keys(d).forEach(k=>{if(d[k]==='')delete d[k];});cambios.push({id:ya.id,d});return;}
+      d.uni=d.uni||'unidades';d.min=d.min||0;d.max=d.max||0;
       const due=norm(get(r,'due')).startsWith('com')?'comercial':'taller';
       nuevos.push(Object.assign(d,{stock:num(get(r,'stock')),due}));
     });
     if(!nuevos.length&&!cambios.length){showToast('El archivo no tiene filas con Código y Descripción.','err');return;}
-    confirmDialog(`<b>${nuevos.length}</b> artículos nuevos (con su stock inicial, de Comercial o del Taller según la columna Dueño; si está vacía, del Taller) y <b>${cambios.length}</b> que ya existen (se actualizan sus datos y su mínimo, <b>no su stock</b>).${errores.length?`<br><br>Se saltean ${errores.length} filas:<br><small>${errores.slice(0,6).map(esc).join('<br>')}${errores.length>6?'<br>…':''}</small>`:''}<br><br>¿Importar?`,()=>importar(nuevos,cambios),'Importar');
+    confirmDialog(`<b>${nuevos.length}</b> artículos nuevos (con su stock inicial, de Comercial o del Taller según la columna Dueño; si está vacía, del Taller) y <b>${cambios.length}</b> que ya existen (se actualizan los datos que vengan completos, <b>no su stock</b>).${errores.length?`<br><br>Se saltean ${errores.length} filas:<br><small>${errores.slice(0,6).map(esc).join('<br>')}${errores.length>6?'<br>…':''}</small>`:''}<br><br>¿Importar?`,()=>importar(nuevos,cambios),'Importar');
   };
   rd.onerror=()=>showToast('No se pudo abrir el archivo.','err');
   rd.readAsArrayBuffer(f);
 });
+/* historial: cada fila (Fecha, Tipo, Código, Cantidad, Motivo / Cliente, Usuario) pasa a ser un movimiento marcado como
+   importado. NO cambia el stock (se supone que el stock del Excel ya los incluye). Cada fila tiene un ID fijo, así que
+   importar dos veces el mismo archivo no duplica nada. */
+const TIPO_XL={'entrada':['ingreso',1],'ingreso':['ingreso',1],'salida':['egreso',-1],'egreso':['egreso',-1],'retiro':['egreso',-1],'ajuste+':['ajuste',1],'ajuste-':['ajuste',-1]};
+function fechaXL(v){
+  // Excel guarda las fechas como número de días desde 1900: se convierte sin zona horaria para que no se corra un día
+  if(typeof v==='number'&&v>20000&&v<80000)return new Date(Math.round((v-25569)*86400000)).toISOString().slice(0,10);
+  if(v instanceof Date&&!isNaN(v))return new Date(v.getTime()-v.getTimezoneOffset()*60000).toISOString().slice(0,10);
+  const t=String(v).trim();let m=t.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
+  if(m)return (m[3].length===2?'20'+m[3]:m[3])+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0');
+  m=t.match(/^(\d{4})-(\d{2})-(\d{2})/);return m?m[0]:'';
+}
+const idFila=s=>{let h=5381;for(let i=0;i<s.length;i++)h=((h*33)^s.charCodeAt(i))>>>0;return 'xl'+h.toString(36)+s.length.toString(36);};
+$('mHist').onclick=()=>{closeMas();if(needXLSX())$('histIn').click();};
+$('histIn').addEventListener('change',e=>{
+  const f=e.target.files&&e.target.files[0];e.target.value='';if(!f)return;
+  const rd=new FileReader();
+  rd.onload=()=>{
+    let filas;try{const wb=XLSX.read(rd.result,{type:'array'});filas=XLSX.utils.sheet_to_json(wb.Sheets[hoja(wb,['movimientos','historial'])],{defval:''});}catch(err){showToast('No se pudo leer ese archivo.','err');return;}
+    const COL={fecha:['fecha'],tipo:['tipo','movimiento'],cod:['codigo','cod'],cant:['cantidad','cant'],dest:['motivo / cliente','motivo/cliente','motivo','cliente','destino'],quien:['usuario','quien','retira']};
+    const get=(r,k)=>{for(const al of COL[k]){const key=Object.keys(r).find(h=>norm(h)===al);if(key!==undefined)return r[key];}return '';};
+    const ok=[],sinArt={},malas=[],vistos={};
+    filas.forEach((r,i)=>{
+      const cod=String(get(r,'cod')).trim(),tipo=TIPO_XL[norm(get(r,'tipo')).replace(/\s/g,'')],fecha=fechaXL(get(r,'fecha')),cant=redondo(+String(get(r,'cant')).replace(',','.'));
+      if(!cod&&!get(r,'tipo')&&!get(r,'cant'))return;
+      if(!tipo||!fecha||!(cant>0)){malas.push(i+2);return;}
+      const a=ARTS.find(x=>norm(x.cod)===norm(cod));if(!a){sinArt[cod]=(sinArt[cod]||0)+1;return;}
+      const dest=String(get(r,'dest')).trim(),quien=String(get(r,'quien')).trim();
+      const clave=[fecha,tipo[0],tipo[1],norm(cod),cant,dest,quien].join('|');vistos[clave]=(vistos[clave]||0)+1;
+      ok.push({id:idFila(clave+'|'+vistos[clave]),tipo:tipo[0],delta:tipo[1]*cant,cant,a,fecha,dest,quien});
+    });
+    const nSin=Object.values(sinArt).reduce((x,y)=>x+y,0);
+    const top=Object.entries(sinArt).sort((x,y)=>y[1]-x[1]).slice(0,6).map(([c,n])=>`${esc(c)} (${n})`).join(', ');
+    if(!ok.length){showToast(nSin?'Ningún código del historial coincide con los artículos cargados. Importá primero los artículos.':'El archivo no tiene movimientos para importar.','err');return;}
+    confirmDialog(`Se van a sumar <b>${ok.length}</b> movimientos al historial (del ${fFecha(ok.reduce((x,m)=>m.fecha<x?m.fecha:x,'9'))} al ${fFecha(ok.reduce((x,m)=>m.fecha>x?m.fecha:x,''))}).<br><b>El stock no cambia.</b> Quedan sin dueño (Comercial/Taller) y no se pueden anular.${nSin?`<br><br><b>${nSin}</b> filas con códigos que no están en la app se saltean: <small>${top}${Object.keys(sinArt).length>6?'…':''}</small>`:''}${malas.length?`<br><b>${malas.length}</b> filas sin fecha, tipo o cantidad válidos se saltean.`:''}<br><br>¿Importar?`,()=>importarHist(ok),'Importar');
+  };
+  rd.onerror=()=>showToast('No se pudo abrir el archivo.','err');
+  rd.readAsArrayBuffer(f);
+});
+async function importarHist(ok){
+  const {FS,fdb}=FB,now=Date.now(),ops=[],ult={};
+  ok.forEach((m,i)=>{ops.push(b=>b.set(FS.doc(fdb,'movimientos/'+m.id),{tipo:m.tipo,due:'',art:m.a.id,cod:m.a.cod,desc:m.a.desc,uni:m.a.uni||'',cant:m.cant,delta:m.delta,fecha:m.fecha,quien:m.quien,entrega:'',dest:m.dest,obs:'Importado del Excel',importado:true,at:Date.parse(m.fecha+'T12:00:00')+i,por:EMAIL}));
+    if(m.tipo==='ingreso'&&m.fecha>(ult[m.a.id]||m.a.ultIng||''))ult[m.a.id]=m.fecha;});
+  Object.keys(ult).forEach(id=>ops.push(b=>b.set(FS.doc(fdb,'articulos/'+id),{ultIng:ult[id]},{merge:true})));
+  showToast('Importando historial…','info');
+  try{for(let i=0;i<ops.length;i+=400){const b=FS.writeBatch(fdb);ops.slice(i,i+400).forEach(o=>o(b));await b.commit();}
+    showToast(`Listo: ${ok.length} movimientos sumados al historial`);if(VIEW==='movs')watchMovs();}
+  catch(e){showToast(errMsg(e),'err');}
+}
 async function importar(nuevos,cambios){
   const {FS,fdb}=FB,now=Date.now(),ops=[];
   cambios.forEach(c=>ops.push(b=>b.set(FS.doc(fdb,'articulos/'+c.id),Object.assign({},c.d,{mod:now}),{merge:true})));
