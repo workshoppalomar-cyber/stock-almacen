@@ -867,7 +867,7 @@ function gate(state,msg){
   const box=$('gateBody');
   if(state==='loading'){box.innerHTML=`<p class="g-wait"><span class="g-spin" aria-hidden="true"></span>${esc(msg||'Conectando…')}</p>`;return;}
   if(state==='error'){box.innerHTML=`<p class="g-msg err">${esc(msg)}</p><button class="btn" type="button" onclick="location.reload()">Reintentar</button>`;return;}
-  if(state==='noaccess'){box.innerHTML=`<p class="g-msg"><b>${esc(EMAIL)}</b> todavía no tiene acceso a la app.</p><p class="g-sub">Pedile al administrador que te sume desde <b>Stock → Más → Usuarios y permisos</b>. Cuando te sume, tocá <b>Reintentar</b>.</p><div class="g-row"><button class="btn" type="button" onclick="location.reload()">Reintentar</button><button class="btn ghost" type="button" id="gOut">Salir</button></div>`;
+  if(state==='noaccess'){box.innerHTML=`<p class="g-msg"><b>${esc(EMAIL)}</b> todavía no tiene acceso a la app.</p><p class="g-sub">Pedile al administrador que te sume desde <b>Stock → Más → Usuarios y permisos</b>. Cuando te sume, tocá <b>Reintentar</b>.</p><div class="g-row"><button class="btn" type="button" onclick="location.reload()">Reintentar</button><button class="btn ghost" type="button" id="gOut">Entrar con otra cuenta</button></div>`;
     $('gOut').onclick=()=>FB.AU.signOut(FB.auth).finally(()=>location.reload());return;}
   box.innerHTML=`<form id="gForm" novalidate>
     <div class="field"><label for="gMail">Mail</label><input id="gMail" type="email" autocomplete="username" inputmode="email" required></div>
@@ -908,8 +908,9 @@ function gate(state,msg){
     EMAIL=(u.email||'').toLowerCase();
     gate('loading','Entrando…');
     let acc=null;
-    try{const s=await FS.getDoc(FS.doc(fdb,'acceso/'+EMAIL));acc=s.exists()?s.data():null;}
-    catch(e){if(e&&e.code==='permission-denied')acc=null;else{gate('error','No se pudo conectar con la base. Revisá internet y tocá Reintentar.');return;}}
+    // el permiso se pregunta siempre al servidor: la copia guardada en esta compu puede ser de antes de que te dieran acceso
+    try{const s=await FS.getDocFromServer(FS.doc(fdb,'acceso/'+EMAIL));acc=s.exists()?s.data():null;}
+    catch(e){if(e&&e.code==='permission-denied')acc=null;else{gate('error','No se pudo conectar con la base de datos. Revisá internet (si estás en la red de la empresa, probá con los datos del celular) y tocá Reintentar.');return;}}
     if(!acc){gate('noaccess');return;}
     started=true;
     ROL=acc.rol||'lectura';WRITE=ROL==='admin'||ROL==='carga';ADMIN=ROL==='admin';
